@@ -24,29 +24,11 @@ git clone https://github.com/sammiya/llm-assistant-copyfix.git
 
 ## Usage
 
-### ChatGPT
-
-1. Open `https://chatgpt.com`.
-2. Open a conversation that contains user messages with multiple lines.
-3. Select text in a user message and copy it with `Cmd+C` / `Ctrl+C`.
-4. Paste into a plain-text editor.
-5. Confirm line breaks are preserved.
-
-### Gemini
-
-1. Open `https://gemini.google.com`.
-2. Open a conversation that contains user messages with multiple lines.
-3. Select text in a user message and copy it with `Cmd+C` / `Ctrl+C`.
-4. Paste into a plain-text editor.
-5. Confirm line breaks are preserved without doubled newlines.
-
-### Claude
-
-1. Open `https://claude.ai`.
-2. Open a conversation that contains user messages with multiple lines and empty lines.
-3. Select text in a user message and copy it with `Cmd+C` / `Ctrl+C`.
-4. Paste into the Claude input editor or another rich-text input.
-5. Confirm line breaks and empty lines are preserved.
+1. Open one supported site: `https://chatgpt.com`, `https://gemini.google.com`, or `https://claude.ai`.
+2. Open a conversation with a user message that includes multiple lines.
+3. Select text in the user message and copy it with `Cmd+C` / `Ctrl+C`.
+4. Paste into a target editor.
+5. Verify expected output: ChatGPT keeps line breaks (not collapsed into spaces), Gemini keeps line breaks without doubling, and Claude rich-text paste keeps both line breaks and empty lines.
 
 ## Security and Disclaimer
 
