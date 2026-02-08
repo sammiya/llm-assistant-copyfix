@@ -1,13 +1,16 @@
-(function installFixCopy() {
+(function installCopyFix() {
   const HANDLER_KEY = "__llm_assistant_copyfix_copy_handler__";
 
-  if (window[HANDLER_KEY]) {
-    document.removeEventListener("copy", window[HANDLER_KEY], true);
+  function getTargetSite() {
+    const host = window.location.hostname;
+    if (host === "chatgpt.com") return "chatgpt";
+    if (host === "gemini.google.com") return "gemini";
+    return null;
   }
 
-  window[HANDLER_KEY] = () => {
+  function getSelectionContext() {
     const sel = window.getSelection();
-    if (!sel || sel.rangeCount === 0) return;
+    if (!sel || sel.rangeCount === 0) return null;
 
     const range = sel.getRangeAt(0);
     const container = range.commonAncestorContainer;
@@ -16,23 +19,156 @@
         ? container
         : container.parentElement;
 
-    if (!ancestor) return;
+    if (!ancestor) return null;
+    return { sel, range, ancestor };
+  }
 
+  function overwriteClipboard(text, scopeLabel) {
+    setTimeout(async () => {
+      try {
+        await navigator.clipboard.writeText(text);
+      } catch (err) {
+        console.error(
+          `[llm-assistant-copyfix:${scopeLabel}] Failed to overwrite clipboard:`,
+          err
+        );
+      }
+    }, 0);
+  }
+
+  function buildGeminiCorrectText(range, queryTextEl) {
+    const pElements = Array.from(queryTextEl.querySelectorAll("p.query-text-line"));
+    if (pElements.length === 0) return null;
+
+    const lines = [];
+    for (const p of pElements) {
+      if (!range.intersectsNode(p)) continue;
+
+      const hasBrOnly = p.querySelector("br") !== null && p.textContent.trim() === "";
+      if (hasBrOnly) {
+        lines.push("");
+        continue;
+      }
+
+      let text = p.textContent.trim();
+      const pContainsStart = p.contains(range.startContainer);
+      const pContainsEnd = p.contains(range.endContainer);
+
+      if (pContainsStart && pContainsEnd) {
+        const tempRange = document.createRange();
+        tempRange.setStart(range.startContainer, range.startOffset);
+        tempRange.setEnd(range.endContainer, range.endOffset);
+        text = tempRange.toString();
+      } else if (pContainsStart) {
+        const tempRange = document.createRange();
+        tempRange.setStart(range.startContainer, range.startOffset);
+        tempRange.setEndAfter(p.lastChild || p);
+        text = tempRange.toString().trimEnd();
+      } else if (pContainsEnd) {
+        const tempRange = document.createRange();
+        tempRange.setStartBefore(p.firstChild || p);
+        tempRange.setEnd(range.endContainer, range.endOffset);
+        text = tempRange.toString().trimStart();
+      }
+
+      lines.push(text);
+    }
+
+    if (lines.length === 0) return null;
+    return lines.join("\n");
+  }
+
+  function getLastNonEmptyLine(lines) {
+    for (let i = lines.length - 1; i >= 0; i -= 1) {
+      if (lines[i].length > 0) return lines[i];
+    }
+    return "";
+  }
+
+  function replaceUserTextInFull(fullText, correctUserText) {
+    const lines = correctUserText.split("\n");
+    const wrongPattern = lines.join("\n\n");
+
+    const patternIndex = fullText.indexOf(wrongPattern);
+    if (patternIndex !== -1) {
+      return (
+        fullText.substring(0, patternIndex) +
+        correctUserText +
+        fullText.substring(patternIndex + wrongPattern.length)
+      );
+    }
+
+    const firstLine = lines.find((line) => line.length > 0) || "";
+    const lastLine = getLastNonEmptyLine(lines);
+    const startIndex = fullText.indexOf(firstLine);
+    const endIndex = fullText.lastIndexOf(lastLine);
+
+    if (startIndex !== -1 && endIndex !== -1 && endIndex >= startIndex) {
+      return (
+        fullText.substring(0, startIndex) +
+        correctUserText +
+        fullText.substring(endIndex + lastLine.length)
+      );
+    }
+
+    return fullText;
+  }
+
+  function getChatGPTReplacement(sel, ancestor) {
     const isUserMessage =
       ancestor.closest(".whitespace-pre-wrap") !== null ||
       ancestor.querySelector?.(".whitespace-pre-wrap") !== null;
+    if (!isUserMessage) return null;
 
-    if (!isUserMessage) return;
+    return sel.toString();
+  }
 
-    const correctText = sel.toString();
+  function getGeminiReplacement(sel, range, ancestor) {
+    const queryTextEl =
+      ancestor.closest?.(".query-text") || ancestor.querySelector?.(".query-text");
+    if (!queryTextEl) return null;
 
-    setTimeout(async () => {
-      try {
-        await navigator.clipboard.writeText(correctText);
-      } catch (err) {
-        console.error("[FixCopy] Failed to overwrite clipboard:", err);
-      }
-    }, 0);
+    const correctUserText = buildGeminiCorrectText(range, queryTextEl);
+    if (correctUserText === null) return null;
+
+    const queryTextRange = document.createRange();
+    queryTextRange.selectNodeContents(queryTextEl);
+
+    const selStartBeforeQuery =
+      range.compareBoundaryPoints(Range.START_TO_START, queryTextRange) < 0;
+    const selEndAfterQuery =
+      range.compareBoundaryPoints(Range.END_TO_END, queryTextRange) > 0;
+
+    if (!selStartBeforeQuery && !selEndAfterQuery) {
+      return correctUserText;
+    }
+
+    const fullText = sel.toString();
+    return replaceUserTextInFull(fullText, correctUserText);
+  }
+
+  if (window[HANDLER_KEY]) {
+    document.removeEventListener("copy", window[HANDLER_KEY], true);
+  }
+
+  window[HANDLER_KEY] = () => {
+    const site = getTargetSite();
+    if (!site) return;
+
+    const context = getSelectionContext();
+    if (!context) return;
+
+    const { sel, range, ancestor } = context;
+
+    let replacementText = null;
+    if (site === "chatgpt") {
+      replacementText = getChatGPTReplacement(sel, ancestor);
+    } else if (site === "gemini") {
+      replacementText = getGeminiReplacement(sel, range, ancestor);
+    }
+
+    if (typeof replacementText !== "string") return;
+    overwriteClipboard(replacementText, site);
   };
 
   document.addEventListener("copy", window[HANDLER_KEY], true);

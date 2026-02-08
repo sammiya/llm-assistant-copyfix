@@ -1,78 +1,109 @@
-# Development Notes: Fix Lost Newlines When Copying ChatGPT User Messages
+# Development Notes: Copy Line-Break Fixes for ChatGPT and Gemini
 
-## 1. Context
+## 1. Scope
 
-On `chatgpt.com`, copying text from a user message (`Cmd+C` / `Ctrl+C`) can collapse line breaks into spaces when pasted into plain-text apps. This extension exists to preserve those line breaks.
+This extension addresses copy-related line-break issues in two web apps:
 
-## 2. Current Observations
+- ChatGPT (`chatgpt.com`): user-message line breaks can collapse into spaces.
+- Gemini (`gemini.google.com`): user-message line breaks can be doubled.
+
+## 2. ChatGPT Notes
 
 ### 2.1 Symptom
 
-When text is copied from a user message and pasted into a plain-text app, line breaks are flattened and the text becomes a single line.
+Copying text from a user message and pasting into a plain-text app can flatten line breaks into spaces.
 
-### 2.2 Root Cause (Current DOM/Behavior)
+### 2.2 Root Cause (Current Observation)
 
-ChatGPT attaches a single React `onCopy` handler to the conversation container (`.flex.flex-col.text-sm.pb-25`). The same handler is used for both user and assistant messages.
+ChatGPT uses a React `onCopy` handler on the conversation container (`.flex.flex-col.text-sm.pb-25`).
+The same handler processes both user and assistant content.
 
-The handler calls `e.preventDefault()` and writes custom `text/plain` / `text/html` to `clipboardData`. Its plain-text generation is based on HTML block boundaries (`<p>`, `<br>`, etc.) and normalizes raw `\n` in text nodes into spaces.
+The handler calls `e.preventDefault()` and writes custom `text/plain` and `text/html`. In that custom plain-text logic, raw `\n` inside text nodes can be normalized to spaces.
 
-Assistant messages are HTML-structured (`<p>`, `<br>`, etc.), so plain-text line breaks are reconstructed correctly. User messages rely on CSS `white-space: pre-wrap` with raw `\n` text nodes and no structural HTML tags, so line breaks are lost.
-
-### 2.3 DOM Structure Snapshot
+### 2.3 Relevant DOM Snapshot
 
 ```
-Conversation container (single onCopy handler here)
+Conversation container (single onCopy handler)
 +-- article (conversation-turn-N) User message
 |   +-- <div class="whitespace-pre-wrap">
-|       Text node: "AAA\nBBB\n\nCCC"  <- no HTML tags, raw \n
+|       Text node: "AAA\nBBB\n\nCCC"
 |
 +-- article (conversation-turn-N) Assistant message
     +-- <div class="markdown">
-        <p>AAA<br>BBB</p><p>CCC</p>     <- structured by HTML tags
+        <p>AAA<br>BBB</p><p>CCC</p>
 ```
 
-### 2.4 Copy Result Snapshot
+### 2.4 ChatGPT Fix Strategy
 
-| | User message | Assistant message |
-|---|---|---|
-| `text/plain` | No: line breaks replaced by spaces | Yes: line breaks preserved |
-| `text/html` | Yes: line breaks preserved | Yes: line breaks preserved |
+If selection includes `.whitespace-pre-wrap`, use `selection.toString()` and overwrite clipboard after default/captured copy flow.
 
-## 3. Current Fix Approach
+## 3. Gemini Notes
 
-- Capture `selection.toString()` during the `copy` capture phase.
-- After ChatGPT's `onCopy` runs, overwrite the clipboard using `navigator.clipboard.writeText()`.
-- Apply only when the selected range includes user-message content (`.whitespace-pre-wrap`).
-- Do not rewrite the DOM and do not disable ChatGPT's handler.
+### 3.1 Symptom
 
-## 4. Source of Truth
+Copying text from a user message and pasting into a plain-text app can double line breaks.
+Single line breaks become `\n\n`; an empty line can become `\n\n\n\n`.
+
+### 3.2 Root Cause (Current Observation)
+
+Gemini does not rely on a custom copy handler for this behavior. The issue comes from DOM structure and browser default copy semantics.
+
+User message lines are represented as `<p class="query-text-line">` nodes under `.query-text`. Browser copy behavior treats `<p>` boundaries as paragraph boundaries and inserts extra newlines.
+
+### 3.3 Relevant DOM Snapshot
+
+```
+<div class="query-text gds-body-l" role="heading">
+  <p class="query-text-line">line A</p>
+  <p class="query-text-line">line B</p>
+  <p class="query-text-line"><br></p>
+  <p class="query-text-line">line C</p>
+</div>
+```
+
+### 3.4 Gemini Fix Strategy
+
+- Build corrected user text by traversing `p.query-text-line` within selection.
+- Treat `<br>`-only paragraphs as empty lines.
+- For cross-selection (user + assistant), replace only the Gemini user segment inside `selection.toString()`.
+
+## 4. Runtime Strategy
+
+A single capture-phase `copy` listener (`content.js`) handles both sites.
+
+- Detect site by `location.hostname`.
+- ChatGPT path: preserve user text with `selection.toString()` when `.whitespace-pre-wrap` is included.
+- Gemini path: reconstruct user text from `p.query-text-line`, then merge for cross-selections.
+- Do not rewrite DOM.
+- Do not modify assistant-only selections.
+
+## 5. Source of Truth
 
 - Runtime behavior: `content.js`
-- Extension config / match scope / permissions: `manifest.json`
-- This file: rationale, findings, and verification notes
+- Extension config and URL matching: `manifest.json`
+- This file: rationale, observations, and verification checklist
 
-## 5. Verification
+## 6. Verification Checklist
 
-### 5.1 Preconditions
+### 6.1 ChatGPT
 
-Open a `chatgpt.com` conversation page that contains a user message with line breaks.
+- Copy user message with multiple lines -> line breaks remain intact.
+- Copy assistant-only content -> behavior unchanged.
+- Copy a range spanning user + assistant -> user-message line breaks remain intact.
 
-### 5.2 Steps
+### 6.2 Gemini
 
-1. Select text from a user message and copy with `Cmd+C` / `Ctrl+C`.
-2. Paste into a plain-text editor.
-3. Confirm line breaks are preserved.
+- Copy full user message -> single line breaks are `\n`, empty lines are `\n\n`.
+- Copy partial range across multiple user lines -> expected line breaks.
+- Copy assistant-only content -> behavior unchanged.
+- Copy single word from user message -> unchanged.
+- Copy range spanning user + assistant -> user part corrected, assistant part unchanged.
 
-### 5.3 Additional Checks
+## 7. Investigation Snippets
 
-- Copy assistant-message text only: behavior remains unchanged.
-- Copy a range spanning user and assistant messages: line breaks remain preserved.
+Run in browser developer tools console as needed.
 
-## 6. Investigation Scripts
-
-Run in browser developer tools console.
-
-### 6.1 Locate `onCopy` Handler
+### 7.1 ChatGPT: Locate `onCopy` handler
 
 ```js
 document.querySelectorAll("*").forEach((el) => {
@@ -80,45 +111,18 @@ document.querySelectorAll("*").forEach((el) => {
   if (!reactPropsKey) return;
   const props = el[reactPropsKey];
   if (!props?.onCopy) return;
-  const articles = el.querySelectorAll("article");
-  console.log("onCopy handler found on:", el.tagName, el.className.substring(0, 80));
-  console.log("contains articles:", articles.length);
-  articles.forEach((a) => {
-    const role = a.querySelector("[data-message-author-role]")
-      ?.getAttribute("data-message-author-role");
-    console.log(`  - ${a.getAttribute("data-testid")}: ${role}`);
-  });
+  console.log("onCopy handler found:", el.tagName, el.className);
 });
 ```
 
-### 6.2 Compare User vs Assistant Copy Results
+### 7.2 Gemini: Inspect user line nodes
 
 ```js
-function testCopy(label, element) {
-  const range = document.createRange();
-  range.selectNodeContents(element);
-  const sel = window.getSelection();
-  sel.removeAllRanges();
-  sel.addRange(range);
-  const event = new ClipboardEvent("copy", {
-    bubbles: true,
-    cancelable: true,
-    clipboardData: new DataTransfer(),
-  });
-  element.dispatchEvent(event);
-  sel.removeAllRanges();
-  const plain = event.clipboardData.getData("text/plain");
-  console.group(`=== ${label} ===`);
-  console.log("text/plain newlines:", (plain.match(/\\n/g) || []).length);
-  console.log("text/plain preview:", JSON.stringify(plain.substring(0, 150)));
-  console.groupEnd();
+const userBlocks = document.querySelectorAll(".query-text");
+console.log("query-text count:", userBlocks.length);
+if (userBlocks[0]) {
+  const lines = userBlocks[0].querySelectorAll("p.query-text-line");
+  console.log("query-text-line count:", lines.length);
+  lines.forEach((line, i) => console.log(i, JSON.stringify(line.textContent)));
 }
-const userEl = document.querySelector(
-  'article[data-testid="conversation-turn-1"] .whitespace-pre-wrap'
-);
-const assistantEl = document.querySelector(
-  'article[data-testid="conversation-turn-2"] .markdown'
-);
-if (userEl) testCopy("User Message", userEl);
-if (assistantEl) testCopy("Assistant Message", assistantEl);
 ```

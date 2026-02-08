@@ -1,6 +1,6 @@
 # llm-assistant-copyfix
 
-A Chrome extension that preserves line breaks when copying messages in LLM chats. Currently supports ChatGPT (`chatgpt.com`) only.
+A Chrome extension that preserves line breaks when copying messages in LLM chats. Supports ChatGPT (`chatgpt.com`) and Gemini (`gemini.google.com`).
 
 ## Install
 
@@ -24,11 +24,21 @@ git clone https://github.com/sammiya/llm-assistant-copyfix.git
 
 ## Usage
 
-1. Open `https://chatgpt.com`
-2. Open a conversation that contains user messages with multiple lines
-3. Select text in a user message and copy it with `Cmd+C` / `Ctrl+C`
-4. Paste into a plain-text editor
-5. Confirm line breaks are preserved
+### ChatGPT
+
+1. Open `https://chatgpt.com`.
+2. Open a conversation that contains user messages with multiple lines.
+3. Select text in a user message and copy it with `Cmd+C` / `Ctrl+C`.
+4. Paste into a plain-text editor.
+5. Confirm line breaks are preserved.
+
+### Gemini
+
+1. Open `https://gemini.google.com`.
+2. Open a conversation that contains user messages with multiple lines.
+3. Select text in a user message and copy it with `Cmd+C` / `Ctrl+C`.
+4. Paste into a plain-text editor.
+5. Confirm line breaks are preserved without doubled newlines.
 
 ## Security and Disclaimer
 

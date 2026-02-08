@@ -1,15 +1,16 @@
 {
   "manifest_version": 3,
   "name": "llm-assistant-copyfix",
-  "version": "0.1.0",
-  "description": "Preserve user-message newlines when copying from chatgpt.com.",
+  "version": "0.2.0",
+  "description": "Preserve line breaks when copying messages from ChatGPT and Gemini.",
   "permissions": [
     "clipboardWrite"
   ],
   "content_scripts": [
     {
       "matches": [
-        "https://chatgpt.com/*"
+        "https://chatgpt.com/*",
+        "https://gemini.google.com/*"
       ],
       "js": [
         "content.js"
