@@ -24,9 +24,30 @@
     return { sel, range, ancestor };
   }
 
-  function overwriteClipboard(text, scopeLabel) {
+  function overwriteClipboard(text, scopeLabel, withHtml = false) {
     setTimeout(async () => {
       try {
+        if (
+          withHtml &&
+          typeof ClipboardItem !== "undefined" &&
+          navigator.clipboard?.write
+        ) {
+          try {
+            const html = buildHtmlFromPlainText(text);
+            const item = new ClipboardItem({
+              "text/plain": new Blob([text], { type: "text/plain" }),
+              "text/html": new Blob([html], { type: "text/html" }),
+            });
+            await navigator.clipboard.write([item]);
+            return;
+          } catch (err) {
+            console.warn(
+              `[llm-assistant-copyfix:${scopeLabel}] Failed rich clipboard write, falling back to plain text:`,
+              err
+            );
+          }
+        }
+
         await navigator.clipboard.writeText(text);
       } catch (err) {
         console.error(
@@ -54,11 +75,13 @@
       .join("");
   }
 
-  function applyClaudeClipboardData(event, text) {
+  function applyEventClipboardData(event, text, withHtml) {
     if (!event || !event.clipboardData) return false;
     event.preventDefault();
     event.clipboardData.setData("text/plain", text);
-    event.clipboardData.setData("text/html", buildHtmlFromPlainText(text));
+    if (withHtml) {
+      event.clipboardData.setData("text/html", buildHtmlFromPlainText(text));
+    }
     return true;
   }
 
@@ -146,7 +169,25 @@
       ancestor.querySelector?.(".whitespace-pre-wrap") !== null;
     if (!isUserMessage) return null;
 
-    return sel.toString();
+    const range = sel.getRangeAt(0);
+    const startElement =
+      range.startContainer.nodeType === Node.ELEMENT_NODE
+        ? range.startContainer
+        : range.startContainer.parentElement;
+    const endElement =
+      range.endContainer.nodeType === Node.ELEMENT_NODE
+        ? range.endContainer
+        : range.endContainer.parentElement;
+
+    const startUserBlock = startElement?.closest(".whitespace-pre-wrap");
+    const endUserBlock = endElement?.closest(".whitespace-pre-wrap");
+    const isUserOnlySelection =
+      !!startUserBlock && !!endUserBlock && startUserBlock === endUserBlock;
+
+    return {
+      text: sel.toString(),
+      withHtml: isUserOnlySelection,
+    };
   }
 
   function getGeminiReplacement(sel, range, ancestor) {
@@ -165,12 +206,19 @@
     const selEndAfterQuery =
       range.compareBoundaryPoints(Range.END_TO_END, queryTextRange) > 0;
 
-    if (!selStartBeforeQuery && !selEndAfterQuery) {
-      return correctUserText;
+    const isUserOnlySelection = !selStartBeforeQuery && !selEndAfterQuery;
+    if (isUserOnlySelection) {
+      return {
+        text: correctUserText,
+        withHtml: true,
+      };
     }
 
     const fullText = sel.toString();
-    return replaceUserTextInFull(fullText, correctUserText);
+    return {
+      text: replaceUserTextInFull(fullText, correctUserText),
+      withHtml: false,
+    };
   }
 
   function getClaudeReplacement(sel, ancestor) {
@@ -179,7 +227,10 @@
       ancestor.querySelector?.('[data-testid="user-message"]') !== null;
     if (!isUserMessage) return null;
 
-    return sel.toString();
+    return {
+      text: sel.toString(),
+      withHtml: false,
+    };
   }
 
   if (window[HANDLER_KEY]) {
@@ -195,26 +246,42 @@
 
     const { sel, range, ancestor } = context;
 
-    let replacementText = null;
+    let replacement = null;
     if (site === "chatgpt") {
-      replacementText = getChatGPTReplacement(sel, ancestor);
+      replacement = getChatGPTReplacement(sel, ancestor);
     } else if (site === "gemini") {
-      replacementText = getGeminiReplacement(sel, range, ancestor);
+      replacement = getGeminiReplacement(sel, range, ancestor);
     } else if (site === "claude") {
-      replacementText = getClaudeReplacement(sel, ancestor);
+      replacement = getClaudeReplacement(sel, ancestor);
     }
 
-    if (typeof replacementText !== "string") return;
+    if (!replacement || typeof replacement.text !== "string") return;
 
     if (site === "claude") {
-      const applied = applyClaudeClipboardData(event, replacementText);
+      const applied = applyEventClipboardData(event, replacement.text, true);
       if (!applied) {
-        overwriteClipboard(replacementText, "claude-fallback");
+        overwriteClipboard(replacement.text, "claude-fallback", true);
       }
       return;
     }
 
-    overwriteClipboard(replacementText, site);
+    if (site === "gemini") {
+      const applied = applyEventClipboardData(
+        event,
+        replacement.text,
+        replacement.withHtml
+      );
+      if (!applied) {
+        overwriteClipboard(
+          replacement.text,
+          "gemini-fallback",
+          replacement.withHtml
+        );
+      }
+      return;
+    }
+
+    overwriteClipboard(replacement.text, site, replacement.withHtml);
   };
 
   document.addEventListener("copy", window[HANDLER_KEY], true);

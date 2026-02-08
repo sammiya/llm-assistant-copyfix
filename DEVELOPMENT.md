@@ -37,6 +37,8 @@ Conversation container (single onCopy handler)
 ### 2.4 ChatGPT Fix Strategy
 
 If selection includes `.whitespace-pre-wrap`, use `selection.toString()` and overwrite clipboard after default/captured copy flow.
+For user-only selections (start/end inside the same user block), attempt to write both `text/plain` and generated `text/html`.
+For mixed selections (user + assistant), write plain text only to avoid interfering with assistant formatting behavior.
 
 ## 3. Gemini Notes
 
@@ -67,6 +69,7 @@ User message lines are represented as `<p class="query-text-line">` nodes under 
 - Build corrected user text by traversing `p.query-text-line` within selection.
 - Treat `<br>`-only paragraphs as empty lines.
 - For cross-selection (user + assistant), replace only the Gemini user segment inside `selection.toString()`.
+- For user-only selections, attempt to write both `text/plain` and generated `text/html`.
 
 ## 4. Claude Notes
 
@@ -100,8 +103,8 @@ Default copied `text/html` can keep those literal newlines without `<br>`. In ri
 A single capture-phase `copy` listener (`content.js`) handles all supported sites.
 
 - Detect site by `location.hostname`.
-- ChatGPT path: overwrite clipboard `text/plain` with `selection.toString()` for user selections.
-- Gemini path: rebuild user text from `p.query-text-line` and merge for cross-selections.
+- ChatGPT path: overwrite clipboard for user selections; user-only selections use rich write (`text/plain` + generated `text/html`) when possible.
+- Gemini path: rebuild user text from `p.query-text-line`; write through copy-event `clipboardData` (`text/plain` + generated `text/html` for user-only selections, plain text only for mixed selections).
 - Claude path: prevent default copy and set both `text/plain` and `text/html` in the copy event.
 - Do not rewrite DOM.
 - Do not modify assistant-only selections.

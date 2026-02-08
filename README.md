@@ -30,6 +30,11 @@ git clone https://github.com/sammiya/llm-assistant-copyfix.git
 4. Paste into a target editor.
 5. Verify expected output: ChatGPT keeps line breaks (not collapsed into spaces), Gemini keeps line breaks without doubling, and Claude rich-text paste keeps both line breaks and empty lines.
 
+## Known Limitations
+
+- On ChatGPT and Gemini, rich `text/html` clipboard data is only generated for user-only selections. Mixed selections (user + assistant) are plain-text only to avoid breaking assistant formatting.
+- On ChatGPT, rich clipboard writing depends on `navigator.clipboard.write`. If unavailable, the extension falls back to plain-text writing only.
+
 ## Security and Disclaimer
 
 - Use at your own risk. The author is not responsible for any damages caused by using this extension.
