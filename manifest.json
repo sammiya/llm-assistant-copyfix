@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "llm-assistant-copyfix",
-  "version": "0.2.0",
-  "description": "Preserve line breaks when copying messages from ChatGPT and Gemini.",
+  "version": "0.3.0",
+  "description": "Preserve line breaks when copying messages from ChatGPT, Gemini, and Claude.",
   "permissions": [
     "clipboardWrite"
   ],
@@ -10,7 +10,8 @@
     {
       "matches": [
         "https://chatgpt.com/*",
-        "https://gemini.google.com/*"
+        "https://gemini.google.com/*",
+        "https://claude.ai/*"
       ],
       "js": [
         "content.js"

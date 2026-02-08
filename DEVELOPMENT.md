@@ -1,11 +1,12 @@
-# Development Notes: Copy Line-Break Fixes for ChatGPT and Gemini
+# Development Notes: Copy Line-Break Fixes for ChatGPT, Gemini, and Claude
 
 ## 1. Scope
 
-This extension addresses copy-related line-break issues in two web apps:
+This extension addresses copy-related line-break issues in three web apps:
 
 - ChatGPT (`chatgpt.com`): user-message line breaks can collapse into spaces.
 - Gemini (`gemini.google.com`): user-message line breaks can be doubled.
+- Claude (`claude.ai`): rich-text pastes can collapse in-paragraph newlines into spaces.
 
 ## 2. ChatGPT Notes
 
@@ -67,31 +68,59 @@ User message lines are represented as `<p class="query-text-line">` nodes under 
 - Treat `<br>`-only paragraphs as empty lines.
 - For cross-selection (user + assistant), replace only the Gemini user segment inside `selection.toString()`.
 
-## 4. Runtime Strategy
+## 4. Claude Notes
 
-A single capture-phase `copy` listener (`content.js`) handles both sites.
+### 4.1 Symptom
+
+When copying user messages in Claude, `text/plain` is usually correct, but rich-text pastes can lose in-paragraph newlines.
+
+### 4.2 Root Cause (Current Observation)
+
+Claude user messages can contain literal `\n` characters inside `<p>` nodes (`.whitespace-pre-wrap break-words`).
+Default copied `text/html` can keep those literal newlines without `<br>`. In rich-text editors, HTML whitespace handling can turn those newlines into spaces.
+
+### 4.3 Relevant DOM Snapshot
+
+```
+<div data-testid="user-message" style="display:grid; gap:8px">
+  <p class="whitespace-pre-wrap break-words">line A\nline B</p>
+  <p class="whitespace-pre-wrap break-words">line C</p>
+</div>
+```
+
+### 4.4 Claude Fix Strategy
+
+- Intervene only when selection includes `[data-testid="user-message"]`.
+- Use copy event data directly: `event.preventDefault()` + `event.clipboardData.setData(...)`.
+- Set both `text/plain` and `text/html`.
+- Generate HTML from plain text by mapping lines to `<p>...</p>` and empty lines to `<p><br></p>`.
+
+## 5. Runtime Strategy
+
+A single capture-phase `copy` listener (`content.js`) handles all supported sites.
 
 - Detect site by `location.hostname`.
-- ChatGPT path: preserve user text with `selection.toString()` when `.whitespace-pre-wrap` is included.
-- Gemini path: reconstruct user text from `p.query-text-line`, then merge for cross-selections.
+- ChatGPT path: overwrite clipboard `text/plain` with `selection.toString()` for user selections.
+- Gemini path: rebuild user text from `p.query-text-line` and merge for cross-selections.
+- Claude path: prevent default copy and set both `text/plain` and `text/html` in the copy event.
 - Do not rewrite DOM.
 - Do not modify assistant-only selections.
 
-## 5. Source of Truth
+## 6. Source of Truth
 
 - Runtime behavior: `content.js`
 - Extension config and URL matching: `manifest.json`
 - This file: rationale, observations, and verification checklist
 
-## 6. Verification Checklist
+## 7. Verification Checklist
 
-### 6.1 ChatGPT
+### 7.1 ChatGPT
 
 - Copy user message with multiple lines -> line breaks remain intact.
 - Copy assistant-only content -> behavior unchanged.
 - Copy a range spanning user + assistant -> user-message line breaks remain intact.
 
-### 6.2 Gemini
+### 7.2 Gemini
 
 - Copy full user message -> single line breaks are `\n`, empty lines are `\n\n`.
 - Copy partial range across multiple user lines -> expected line breaks.
@@ -99,11 +128,20 @@ A single capture-phase `copy` listener (`content.js`) handles both sites.
 - Copy single word from user message -> unchanged.
 - Copy range spanning user + assistant -> user part corrected, assistant part unchanged.
 
-## 7. Investigation Snippets
+### 7.3 Claude
+
+- Copy user message with multiple lines and empty lines -> rich-text paste preserves both line breaks and empty lines.
+- Copy partial user selection -> line breaks remain intact.
+- Copy single word from user message -> unchanged.
+- Copy assistant-only content -> behavior unchanged.
+- Copy range spanning user + assistant -> full pasted content keeps expected line structure.
+- Copy user message and paste into plain-text editor -> line breaks remain intact.
+
+## 8. Investigation Snippets
 
 Run in browser developer tools console as needed.
 
-### 7.1 ChatGPT: Locate `onCopy` handler
+### 8.1 ChatGPT: Locate `onCopy` handler
 
 ```js
 document.querySelectorAll("*").forEach((el) => {
@@ -115,7 +153,7 @@ document.querySelectorAll("*").forEach((el) => {
 });
 ```
 
-### 7.2 Gemini: Inspect user line nodes
+### 8.2 Gemini: Inspect user line nodes
 
 ```js
 const userBlocks = document.querySelectorAll(".query-text");
@@ -124,5 +162,17 @@ if (userBlocks[0]) {
   const lines = userBlocks[0].querySelectorAll("p.query-text-line");
   console.log("query-text-line count:", lines.length);
   lines.forEach((line, i) => console.log(i, JSON.stringify(line.textContent)));
+}
+```
+
+### 8.3 Claude: Inspect user message blocks
+
+```js
+const blocks = document.querySelectorAll('[data-testid="user-message"]');
+console.log("user-message blocks:", blocks.length);
+if (blocks[0]) {
+  const ps = blocks[0].querySelectorAll("p.whitespace-pre-wrap");
+  console.log("paragraph count:", ps.length);
+  ps.forEach((p, i) => console.log(i, JSON.stringify(p.textContent)));
 }
 ```

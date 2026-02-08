@@ -5,6 +5,7 @@
     const host = window.location.hostname;
     if (host === "chatgpt.com") return "chatgpt";
     if (host === "gemini.google.com") return "gemini";
+    if (host === "claude.ai") return "claude";
     return null;
   }
 
@@ -34,6 +35,31 @@
         );
       }
     }, 0);
+  }
+
+  function escapeHtml(text) {
+    return text
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;");
+  }
+
+  function buildHtmlFromPlainText(text) {
+    return text
+      .split("\n")
+      .map((line) => {
+        if (line === "") return "<p><br></p>";
+        return `<p>${escapeHtml(line)}</p>`;
+      })
+      .join("");
+  }
+
+  function applyClaudeClipboardData(event, text) {
+    if (!event || !event.clipboardData) return false;
+    event.preventDefault();
+    event.clipboardData.setData("text/plain", text);
+    event.clipboardData.setData("text/html", buildHtmlFromPlainText(text));
+    return true;
   }
 
   function buildGeminiCorrectText(range, queryTextEl) {
@@ -147,11 +173,20 @@
     return replaceUserTextInFull(fullText, correctUserText);
   }
 
+  function getClaudeReplacement(sel, ancestor) {
+    const isUserMessage =
+      ancestor.closest('[data-testid="user-message"]') !== null ||
+      ancestor.querySelector?.('[data-testid="user-message"]') !== null;
+    if (!isUserMessage) return null;
+
+    return sel.toString();
+  }
+
   if (window[HANDLER_KEY]) {
     document.removeEventListener("copy", window[HANDLER_KEY], true);
   }
 
-  window[HANDLER_KEY] = () => {
+  window[HANDLER_KEY] = (event) => {
     const site = getTargetSite();
     if (!site) return;
 
@@ -165,9 +200,20 @@
       replacementText = getChatGPTReplacement(sel, ancestor);
     } else if (site === "gemini") {
       replacementText = getGeminiReplacement(sel, range, ancestor);
+    } else if (site === "claude") {
+      replacementText = getClaudeReplacement(sel, ancestor);
     }
 
     if (typeof replacementText !== "string") return;
+
+    if (site === "claude") {
+      const applied = applyClaudeClipboardData(event, replacementText);
+      if (!applied) {
+        overwriteClipboard(replacementText, "claude-fallback");
+      }
+      return;
+    }
+
     overwriteClipboard(replacementText, site);
   };
 
